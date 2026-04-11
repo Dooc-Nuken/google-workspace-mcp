@@ -3,6 +3,7 @@ import { createServer } from "node:http";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { randomBytes } from "node:crypto";
 
 // Resolve paths relative to the project root (parent of src/)
 const __filename = fileURLToPath(import.meta.url);
@@ -21,8 +22,8 @@ const SCOPES = [
   "https://www.googleapis.com/auth/classroom.courses.readonly",
   "https://www.googleapis.com/auth/classroom.announcements.readonly",
   "https://www.googleapis.com/auth/classroom.coursework.me.readonly",
-  "https://www.googleapis.com/auth/classroom.rosters.readonly",
-  "https://www.googleapis.com/auth/calendar.readonly",
+  // classroom.rosters.readonly and calendar.readonly are intentionally omitted:
+  // no tools use them yet. Add them back when roster/calendar tools are implemented.
 ];
 
 const REDIRECT_URI = "http://localhost:3000/oauth2callback";
@@ -60,9 +61,7 @@ async function loadTokens(): Promise<StoredTokens> {
     const raw = await readFile(TOKENS_PATH, "utf-8");
     return JSON.parse(raw) as StoredTokens;
   } catch {
-    throw new Error(
-      `Tokens not found at ${TOKENS_PATH}. Run "npm run auth" to authenticate.`,
-    );
+    throw new Error('Tokens not found. Run "npm run auth" to authenticate.');
   }
 }
 
@@ -83,7 +82,7 @@ export async function getAuthClient(): Promise<OAuth2Client> {
         refresh_token: newTokens.refresh_token ?? tokens.refresh_token,
         expiry_date: newTokens.expiry_date ?? 0,
       }).catch((err) => {
-        console.error("[google-pro] failed to persist refreshed tokens:", err);
+        console.error("[google-workspace-mcp] WARNING: failed to persist refreshed tokens — next restart may require re-auth:", err);
       });
     }
   });
@@ -99,10 +98,12 @@ async function interactiveAuth(): Promise<void> {
   const { clientId, clientSecret } = await loadCredentials();
   const client = createOAuth2Client(clientId, clientSecret);
 
+  const state = randomBytes(16).toString("hex");
   const authUrl = client.generateAuthUrl({
     access_type: "offline",
     scope: SCOPES,
     prompt: "consent",
+    state,
   });
 
   console.log("\n=== Google Workspace MCP — OAuth Setup ===\n");
@@ -121,7 +122,7 @@ async function interactiveAuth(): Promise<void> {
         : "xdg-open";
   spawn(openCmd, [authUrl], { detached: true, stdio: "ignore" }).unref();
 
-  // Wait for the OAuth callback
+  // Wait for the OAuth callback (5-minute timeout)
   const code = await new Promise<string>((resolveCode, reject) => {
     const server = createServer((req, res) => {
       const url = new URL(req.url ?? "/", "http://localhost:3000");
@@ -137,6 +138,17 @@ async function interactiveAuth(): Promise<void> {
         res.writeHead(400);
         res.end(`Authorization error: ${error}`);
         reject(new Error(`OAuth error: ${error}`));
+        clearTimeout(timeout);
+        server.close();
+        return;
+      }
+
+      const receivedState = url.searchParams.get("state");
+      if (receivedState !== state) {
+        res.writeHead(400);
+        res.end("Invalid state parameter");
+        reject(new Error("OAuth state mismatch: possible CSRF attack"));
+        clearTimeout(timeout);
         server.close();
         return;
       }
@@ -146,6 +158,7 @@ async function interactiveAuth(): Promise<void> {
         res.writeHead(400);
         res.end("Missing authorization code");
         reject(new Error("Missing authorization code"));
+        clearTimeout(timeout);
         server.close();
         return;
       }
@@ -154,15 +167,24 @@ async function interactiveAuth(): Promise<void> {
       res.end(
         "<html><body><h2>Google Workspace MCP authorized!</h2><p>You can close this tab.</p></body></html>",
       );
+      clearTimeout(timeout);
       resolveCode(authCode);
       server.close();
     });
+
+    const timeout = setTimeout(() => {
+      server.close();
+      reject(new Error("OAuth timeout: no callback received within 5 minutes"));
+    }, 5 * 60 * 1000);
 
     server.listen(3000, () => {
       console.log("Waiting for authorization on http://localhost:3000 ...\n");
     });
 
-    server.on("error", reject);
+    server.on("error", (err) => {
+      clearTimeout(timeout);
+      reject(err);
+    });
   });
 
   // Exchange code for tokens

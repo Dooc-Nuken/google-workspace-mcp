@@ -1,6 +1,6 @@
 import { gmail_v1, gmail } from "@googleapis/gmail";
 import type { OAuth2Client } from "google-auth-library";
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { readFile, writeFile, mkdir, stat } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 import { homedir } from "node:os";
 import { randomBytes } from "node:crypto";
@@ -419,7 +419,7 @@ export async function batchTrash(
 
 // ── Path safety ──
 
-const SENSITIVE_DIRS = [".ssh", ".gnupg", ".gmail-mcp", ".config", ".claude"];
+const SENSITIVE_DIRS = [".ssh", ".gnupg", ".gmail-mcp", ".config", ".claude", ".local"];
 const SENSITIVE_FILES = [".env", "tokens.json", "credentials.json", "id_rsa", "id_ed25519"];
 
 function resolveHome(p: string): string {
@@ -431,13 +431,13 @@ function assertSafePath(filepath: string): void {
   const parts = resolved.split("/");
   for (const dir of SENSITIVE_DIRS) {
     if (parts.includes(dir)) {
-      throw new Error(`Refused: path traverses sensitive directory "${dir}" — ${resolved}`);
+      throw new Error("Access denied: path not permitted.");
     }
   }
   const base = basename(resolved).toLowerCase();
   for (const name of SENSITIVE_FILES) {
     if (base === name || base.startsWith(".env")) {
-      throw new Error(`Refused: path targets sensitive file "${base}" — ${resolved}`);
+      throw new Error("Access denied: path not permitted.");
     }
   }
 }
@@ -480,11 +480,19 @@ interface AttachmentData {
   mimeType: string;
 }
 
+const MAX_ATTACHMENT_SIZE = 20 * 1024 * 1024; // 20 MB (Gmail limit is 25 MB)
+
 async function loadLocalAttachments(paths: string[]): Promise<AttachmentData[]> {
   const attachments: AttachmentData[] = [];
   for (const p of paths) {
     const resolved = resolveHome(p);
     assertSafePath(resolved);
+    const fileStat = await stat(resolved);
+    if (fileStat.size > MAX_ATTACHMENT_SIZE) {
+      throw new Error(
+        `Attachment too large: ${basename(resolved)} (${(fileStat.size / 1024 / 1024).toFixed(1)} MB, max 20 MB)`,
+      );
+    }
     const content = await readFile(resolved);
     attachments.push({
       filename: basename(resolved),
@@ -493,6 +501,11 @@ async function loadLocalAttachments(paths: string[]): Promise<AttachmentData[]> 
     });
   }
   return attachments;
+}
+
+/** Strip CR and LF from header values to prevent MIME header injection. */
+function sanitizeHeader(value: string): string {
+  return value.replace(/[\r\n]/g, "");
 }
 
 function buildRawMessage(opts: {
@@ -509,12 +522,12 @@ function buildRawMessage(opts: {
   const hasAttachments = opts.attachments && opts.attachments.length > 0;
 
   let msg = "";
-  msg += `To: ${opts.to}\r\n`;
-  if (opts.cc) msg += `Cc: ${opts.cc}\r\n`;
-  if (opts.bcc) msg += `Bcc: ${opts.bcc}\r\n`;
-  msg += `Subject: ${opts.subject}\r\n`;
-  if (opts.inReplyTo) msg += `In-Reply-To: ${opts.inReplyTo}\r\n`;
-  if (opts.references) msg += `References: ${opts.references}\r\n`;
+  msg += `To: ${sanitizeHeader(opts.to)}\r\n`;
+  if (opts.cc) msg += `Cc: ${sanitizeHeader(opts.cc)}\r\n`;
+  if (opts.bcc) msg += `Bcc: ${sanitizeHeader(opts.bcc)}\r\n`;
+  msg += `Subject: ${sanitizeHeader(opts.subject)}\r\n`;
+  if (opts.inReplyTo) msg += `In-Reply-To: ${sanitizeHeader(opts.inReplyTo)}\r\n`;
+  if (opts.references) msg += `References: ${sanitizeHeader(opts.references)}\r\n`;
   msg += `MIME-Version: 1.0\r\n`;
 
   if (hasAttachments) {

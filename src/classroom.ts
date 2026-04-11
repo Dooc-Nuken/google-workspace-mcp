@@ -2,6 +2,9 @@ import { google, classroom_v1 } from "googleapis";
 import type { OAuth2Client } from "google-auth-library";
 
 function getClient(auth: OAuth2Client): classroom_v1.Classroom {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // Cast required: googleapis bundles its own google-auth-library version, causing
+  // a structural type mismatch with the top-level google-auth-library dependency.
   return google.classroom({ version: "v1", auth: auth as any });
 }
 
@@ -14,7 +17,6 @@ export interface CourseInfo {
   descriptionHeading: string;
   courseState: string;
   alternateLink: string;
-  enrollmentCode: string;
   creationTime: string;
   updateTime: string;
 }
@@ -31,7 +33,6 @@ export async function listCourses(
     descriptionHeading: c.descriptionHeading ?? "",
     courseState: c.courseState ?? "",
     alternateLink: c.alternateLink ?? "",
-    enrollmentCode: c.enrollmentCode ?? "",
     creationTime: c.creationTime ?? "",
     updateTime: c.updateTime ?? "",
   }));
@@ -58,7 +59,6 @@ export async function getCourseDetails(
     descriptionHeading: c.descriptionHeading ?? "",
     courseState: c.courseState ?? "",
     alternateLink: c.alternateLink ?? "",
-    enrollmentCode: c.enrollmentCode ?? "",
     creationTime: c.creationTime ?? "",
     updateTime: c.updateTime ?? "",
   };

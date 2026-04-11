@@ -2,6 +2,9 @@ import { google, forms_v1 } from "googleapis";
 import type { OAuth2Client } from "google-auth-library";
 
 function getClient(auth: OAuth2Client): forms_v1.Forms {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // Cast required: googleapis bundles its own google-auth-library version, causing
+  // a structural type mismatch with the top-level google-auth-library dependency.
   return google.forms({ version: "v1", auth: auth as any });
 }
 

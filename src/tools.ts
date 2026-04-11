@@ -850,7 +850,7 @@ const getThreadInput = z.object({ id: z.string().min(1) });
 const createLabelInput = z.object({ name: z.string().min(1) });
 const deleteLabelInput = z.object({ name: z.string().min(1) });
 const modifyLabelsInput = z.object({
-  ids: coerceStringArrayMin1,
+  ids: z.preprocess(safeJsonParse, z.array(z.string().min(1)).min(1).max(100)),
   addLabels: coerceStringArray.optional().default([]),
   removeLabels: coerceStringArray.optional().default([]),
 });
@@ -871,7 +871,7 @@ const createFilterInput = z.object({
   (d) => d.from || d.to || d.subject || d.query,
   { message: "At least one filter criterion is required (from, to, subject, or query)" },
 );
-const batchTrashInput = z.object({ ids: coerceStringArrayMin1 });
+const batchTrashInput = z.object({ ids: z.preprocess(safeJsonParse, z.array(z.string().min(1)).min(1).max(100)) });
 const sendInput = z.object({
   to: z.string().min(1),
   subject: z.string(),

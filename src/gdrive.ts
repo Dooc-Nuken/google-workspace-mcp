@@ -1,6 +1,6 @@
 import { drive_v3, drive } from "@googleapis/drive";
 import type { OAuth2Client } from "google-auth-library";
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { readFile, writeFile, mkdir, stat } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 import { homedir } from "node:os";
 import { Readable } from "node:stream";
@@ -28,13 +28,13 @@ function assertSafePath(filepath: string): void {
   const parts = resolved.split("/");
   for (const dir of SENSITIVE_DIRS) {
     if (parts.includes(dir)) {
-      throw new Error(`Refused: path traverses sensitive directory "${dir}" — ${resolved}`);
+      throw new Error("Access denied: path not permitted.");
     }
   }
   const base = basename(resolved).toLowerCase();
   for (const name of SENSITIVE_FILES) {
     if (base === name || base.startsWith(".env")) {
-      throw new Error(`Refused: path targets sensitive file "${base}" — ${resolved}`);
+      throw new Error("Access denied: path not permitted.");
     }
   }
 }
@@ -323,6 +323,13 @@ export async function uploadFile(
   const resolved = resolveHome(localPath);
   assertSafePath(resolved);
 
+  const MAX_UPLOAD_SIZE = 20 * 1024 * 1024; // 20 MB
+  const fileStat = await stat(resolved);
+  if (fileStat.size > MAX_UPLOAD_SIZE) {
+    throw new Error(
+      `File too large: ${basename(resolved)} (${(fileStat.size / 1024 / 1024).toFixed(1)} MB, max 20 MB)`,
+    );
+  }
   const content = await readFile(resolved);
   const fileName = name ?? basename(resolved);
   const mimeType = getMimeType(fileName);
