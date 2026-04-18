@@ -9,6 +9,27 @@ function getClient(auth: OAuth2Client): gmail_v1.Gmail {
   return gmail({ version: "v1", auth });
 }
 
+// ── Cached sender display name ──
+
+let cachedSenderFrom: string | null = null;
+
+async function getSenderFrom(auth: OAuth2Client): Promise<string | null> {
+  if (cachedSenderFrom !== null) return cachedSenderFrom;
+  try {
+    const client = getClient(auth);
+    const res = await client.users.settings.sendAs.list({ userId: "me" });
+    const primary = res.data.sendAs?.find((s) => s.isPrimary);
+    if (primary?.displayName && primary?.sendAsEmail) {
+      cachedSenderFrom = `${primary.displayName} <${primary.sendAsEmail}>`;
+    } else {
+      cachedSenderFrom = "";
+    }
+  } catch {
+    cachedSenderFrom = "";
+  }
+  return cachedSenderFrom || null;
+}
+
 function truncate(text: string, max = 12000): string {
   if (text.length <= max) return text;
   return `${text.slice(0, max)}\n\n[truncated: ${text.length - max} chars omitted]`;
@@ -512,6 +533,7 @@ function buildRawMessage(opts: {
   to: string;
   subject: string;
   body: string;
+  from?: string;
   cc?: string;
   bcc?: string;
   inReplyTo?: string;
@@ -522,6 +544,7 @@ function buildRawMessage(opts: {
   const hasAttachments = opts.attachments && opts.attachments.length > 0;
 
   let msg = "";
+  if (opts.from) msg += `From: ${sanitizeHeader(opts.from)}\r\n`;
   msg += `To: ${sanitizeHeader(opts.to)}\r\n`;
   if (opts.cc) msg += `Cc: ${sanitizeHeader(opts.cc)}\r\n`;
   if (opts.bcc) msg += `Bcc: ${sanitizeHeader(opts.bcc)}\r\n`;
@@ -606,8 +629,9 @@ export async function sendEmail(
 ): Promise<SendResult> {
   const client = getClient(auth);
   const attachments = attachmentPaths ? await loadLocalAttachments(attachmentPaths) : undefined;
+  const from = await getSenderFrom(auth) ?? undefined;
 
-  const raw = buildRawMessage({ to, subject, body, cc, bcc, attachments });
+  const raw = buildRawMessage({ to, subject, body, from, cc, bcc, attachments });
 
   const res = await client.users.messages.send({
     userId: "me",
@@ -688,11 +712,13 @@ export async function replyToMessage(
     : origMessageId;
 
   const attachments = attachmentPaths ? await loadLocalAttachments(attachmentPaths) : undefined;
+  const from = await getSenderFrom(auth) ?? undefined;
 
   const raw = buildRawMessage({
     to,
     subject,
     body,
+    from,
     cc,
     inReplyTo: origMessageId,
     references,
@@ -781,7 +807,8 @@ export async function forwardMessage(
     }
   }
 
-  const raw = buildRawMessage({ to, subject, body, attachments });
+  const from = await getSenderFrom(auth) ?? undefined;
+  const raw = buildRawMessage({ to, subject, body, from, attachments });
 
   const res = await client.users.messages.send({
     userId: "me",
@@ -841,7 +868,8 @@ export async function createDraft(
     }
   }
 
-  const raw = buildRawMessage({ to, subject, body, cc, bcc, inReplyTo, references, attachments });
+  const from = await getSenderFrom(auth) ?? undefined;
+  const raw = buildRawMessage({ to, subject, body, from, cc, bcc, inReplyTo, references, attachments });
 
   const res = await client.users.drafts.create({
     userId: "me",
