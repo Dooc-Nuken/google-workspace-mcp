@@ -529,6 +529,25 @@ function sanitizeHeader(value: string): string {
   return value.replace(/[\r\n]/g, "");
 }
 
+/**
+ * Transform body for RFC 3676 format=flowed.
+ * Adds trailing space to flowable lines so clients can re-wrap them based on
+ * display width. Lines starting with list/quote/header markers stay "fixed"
+ * (no trailing space). Empty lines are paragraph breaks.
+ */
+function formatFlowedBody(body: string): string {
+  const lines = body.split(/\r?\n/);
+  return lines
+    .map((line) => {
+      if (line.length === 0) return line;
+      if (/^[-*>#]/.test(line)) return line;
+      if (/^\s/.test(line)) return line;
+      if (line.endsWith(" ")) return line;
+      return line + " ";
+    })
+    .join("\r\n");
+}
+
 function buildRawMessage(opts: {
   to: string;
   subject: string;
@@ -556,8 +575,8 @@ function buildRawMessage(opts: {
   if (hasAttachments) {
     msg += `Content-Type: multipart/mixed; boundary="${boundary}"\r\n\r\n`;
     msg += `--${boundary}\r\n`;
-    msg += `Content-Type: text/plain; charset="utf-8"\r\n\r\n`;
-    msg += `${opts.body}\r\n`;
+    msg += `Content-Type: text/plain; charset="utf-8"; format=flowed\r\n\r\n`;
+    msg += `${formatFlowedBody(opts.body)}\r\n`;
     for (const att of opts.attachments!) {
       msg += `\r\n--${boundary}\r\n`;
       msg += `Content-Type: ${att.mimeType}; name="${att.filename}"\r\n`;
@@ -569,8 +588,8 @@ function buildRawMessage(opts: {
     }
     msg += `--${boundary}--`;
   } else {
-    msg += `Content-Type: text/plain; charset="utf-8"\r\n\r\n`;
-    msg += opts.body;
+    msg += `Content-Type: text/plain; charset="utf-8"; format=flowed\r\n\r\n`;
+    msg += formatFlowedBody(opts.body);
   }
 
   return Buffer.from(msg).toString("base64url");
