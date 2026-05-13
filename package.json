@@ -14,8 +14,9 @@
     "auth": "tsx src/auth.ts"
   },
   "dependencies": {
-    "@googleapis/gmail": "^16.1.1",
     "@googleapis/drive": "^20.1.0",
+    "@googleapis/gmail": "^16.1.1",
+    "@googleapis/sheets": "^13.0.1",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "dotenv": "^16.6.1",
     "google-auth-library": "^10.6.2",

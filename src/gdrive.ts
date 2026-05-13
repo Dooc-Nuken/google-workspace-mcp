@@ -160,7 +160,9 @@ export async function search(
     pageSize: limit,
     fields: `files(${FILE_FIELDS})`,
     orderBy: "modifiedTime desc",
-    includeItemsFromAllDrives: false,
+    includeItemsFromAllDrives: true,
+    supportsAllDrives: true,
+    corpora: "allDrives",
   });
   const results = (res.data.files ?? []).map(formatFileInfo);
   return { query, count: results.length, results };
@@ -181,6 +183,8 @@ export async function listFolder(
     pageSize: limit,
     fields: `files(${FILE_FIELDS})`,
     orderBy: "folder, name",
+    includeItemsFromAllDrives: true,
+    supportsAllDrives: true,
   });
   const files = (res.data.files ?? []).map(formatFileInfo);
   return { folderId, count: files.length, files };
@@ -194,6 +198,7 @@ export async function getFileInfo(
   const res = await client.files.get({
     fileId,
     fields: FILE_FIELDS,
+    supportsAllDrives: true,
   });
   return formatFileInfo(res.data);
 }
@@ -208,6 +213,7 @@ export async function readFileContent(
   const meta = await client.files.get({
     fileId,
     fields: "id, name, mimeType, size",
+    supportsAllDrives: true,
   });
 
   const mimeType = meta.data.mimeType ?? "";
@@ -236,7 +242,7 @@ export async function readFileContent(
 
   // Text-based files — download content
   const res = await client.files.get(
-    { fileId, alt: "media" },
+    { fileId, alt: "media", supportsAllDrives: true },
     { responseType: "text" },
   );
   const content = typeof res.data === "string" ? res.data : JSON.stringify(res.data);
@@ -362,6 +368,7 @@ export async function downloadFile(
   const meta = await client.files.get({
     fileId,
     fields: "mimeType, name",
+    supportsAllDrives: true,
   });
 
   const mimeType = meta.data.mimeType ?? "";
@@ -379,7 +386,7 @@ export async function downloadFile(
   } else {
     // Regular file — download
     const res = await client.files.get(
-      { fileId, alt: "media" },
+      { fileId, alt: "media", supportsAllDrives: true },
       { responseType: "arraybuffer" },
     );
     buffer = Buffer.from(res.data as ArrayBuffer);
@@ -402,6 +409,7 @@ export async function moveFile(
   const file = await client.files.get({
     fileId,
     fields: "parents",
+    supportsAllDrives: true,
   });
   const previousParents = (file.data.parents ?? []).join(",");
 

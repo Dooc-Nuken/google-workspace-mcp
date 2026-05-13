@@ -4,6 +4,7 @@ import * as gmail from "./gmail.js";
 import * as gdrive from "./gdrive.js";
 import * as forms from "./forms.js";
 import * as classroom from "./classroom.js";
+import * as sheets from "./sheets.js";
 
 // ═══════════════════════════════════════════════════════════════════
 // Tool definitions — combined from Gmail, Drive, Forms, Classroom
@@ -818,6 +819,112 @@ const classroomToolDefinitions = [
   },
 ];
 
+const sheetsToolDefinitions = [
+  {
+    name: "gsheet_list_tabs",
+    description:
+      "List all tabs (sheets) of a Google Spreadsheet with their sheetId, title, index, hidden flag, and grid dimensions.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        spreadsheetId: {
+          type: "string",
+          description: "Spreadsheet ID",
+        },
+      },
+      required: ["spreadsheetId"],
+    },
+  },
+  {
+    name: "gsheet_get_range",
+    description:
+      "Read a range of cells from a Google Sheet. Range is A1 notation, e.g. \"A1S2!A1:Z50\" or \"Sheet1!B:B\". valueRenderOption controls how values come back (FORMATTED_VALUE default, UNFORMATTED_VALUE for raw numbers, FORMULA for cell formulas).",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        spreadsheetId: {
+          type: "string",
+          description: "Spreadsheet ID",
+        },
+        range: {
+          type: "string",
+          description: "A1 notation range, e.g. \"A1S2!Q3:Q18\"",
+        },
+        valueRenderOption: {
+          type: "string",
+          description: "FORMATTED_VALUE (default), UNFORMATTED_VALUE, or FORMULA",
+        },
+      },
+      required: ["spreadsheetId", "range"],
+    },
+  },
+  {
+    name: "gsheet_update_range",
+    description:
+      "Write values to a range of cells in a Google Sheet. Values is a 2D array (rows of cells). valueInputOption USER_ENTERED (default) parses strings as a user would (numbers, dates, formulas); RAW writes them literally.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        spreadsheetId: {
+          type: "string",
+          description: "Spreadsheet ID",
+        },
+        range: {
+          type: "string",
+          description: "A1 notation target range, e.g. \"A1S2!Q3:Q18\"",
+        },
+        values: {
+          type: "array",
+          description: "2D array of cell values (rows of columns).",
+          items: {
+            type: "array",
+            items: {},
+          },
+        },
+        valueInputOption: {
+          type: "string",
+          description: "USER_ENTERED (default) or RAW",
+        },
+      },
+      required: ["spreadsheetId", "range", "values"],
+    },
+  },
+  {
+    name: "gsheet_batch_update_ranges",
+    description:
+      "Batch-write multiple ranges in one call. data is an array of { range, values } entries.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        spreadsheetId: {
+          type: "string",
+          description: "Spreadsheet ID",
+        },
+        data: {
+          type: "array",
+          description: "Array of { range, values } entries to update.",
+          items: {
+            type: "object",
+            properties: {
+              range: { type: "string" },
+              values: {
+                type: "array",
+                items: { type: "array", items: {} },
+              },
+            },
+            required: ["range", "values"],
+          },
+        },
+        valueInputOption: {
+          type: "string",
+          description: "USER_ENTERED (default) or RAW",
+        },
+      },
+      required: ["spreadsheetId", "data"],
+    },
+  },
+];
+
 // ── Combined export ──
 
 export const toolDefinitions = [
@@ -825,6 +932,7 @@ export const toolDefinitions = [
   ...gdriveToolDefinitions,
   ...formsToolDefinitions,
   ...classroomToolDefinitions,
+  ...sheetsToolDefinitions,
 ];
 
 // ═══════════════════════════════════════════════════════════════════
@@ -979,6 +1087,33 @@ const getResponseInput = z.object({
 
 // Classroom schemas
 const courseIdInput = z.object({ courseId: z.string().min(1) });
+
+// Sheets schemas
+const sheetCellValue = z.union([z.string(), z.number(), z.boolean(), z.null()]);
+const sheetMatrix = z.preprocess(safeJsonParse, z.array(z.array(sheetCellValue)));
+const spreadsheetIdInput = z.object({ spreadsheetId: z.string().min(1) });
+const getRangeInput = z.object({
+  spreadsheetId: z.string().min(1),
+  range: z.string().min(1),
+  valueRenderOption: z
+    .enum(["FORMATTED_VALUE", "UNFORMATTED_VALUE", "FORMULA"])
+    .optional()
+    .default("FORMATTED_VALUE"),
+});
+const updateRangeInput = z.object({
+  spreadsheetId: z.string().min(1),
+  range: z.string().min(1),
+  values: sheetMatrix,
+  valueInputOption: z.enum(["RAW", "USER_ENTERED"]).optional().default("USER_ENTERED"),
+});
+const batchUpdateRangesInput = z.object({
+  spreadsheetId: z.string().min(1),
+  data: z.preprocess(
+    safeJsonParse,
+    z.array(z.object({ range: z.string().min(1), values: z.array(z.array(sheetCellValue)) })).min(1),
+  ),
+  valueInputOption: z.enum(["RAW", "USER_ENTERED"]).optional().default("USER_ENTERED"),
+});
 
 // ═══════════════════════════════════════════════════════════════════
 // Tool dispatch
@@ -1166,6 +1301,41 @@ export async function handleToolCall(
       case "gforms_get_response": {
         const input = getResponseInput.parse(args);
         return jsonResponse(await forms.getResponse(auth, input.formId, input.responseId));
+      }
+
+      // ── Sheets ──
+      case "gsheet_list_tabs": {
+        const input = spreadsheetIdInput.parse(args);
+        return jsonResponse(await sheets.listTabs(auth, input.spreadsheetId));
+      }
+      case "gsheet_get_range": {
+        const input = getRangeInput.parse(args);
+        return jsonResponse(
+          await sheets.getRange(auth, input.spreadsheetId, input.range, input.valueRenderOption),
+        );
+      }
+      case "gsheet_update_range": {
+        const input = updateRangeInput.parse(args);
+        return jsonResponse(
+          await sheets.updateRange(
+            auth,
+            input.spreadsheetId,
+            input.range,
+            input.values,
+            input.valueInputOption,
+          ),
+        );
+      }
+      case "gsheet_batch_update_ranges": {
+        const input = batchUpdateRangesInput.parse(args);
+        return jsonResponse(
+          await sheets.batchUpdateRanges(
+            auth,
+            input.spreadsheetId,
+            input.data,
+            input.valueInputOption,
+          ),
+        );
       }
 
       // ── Classroom ──
