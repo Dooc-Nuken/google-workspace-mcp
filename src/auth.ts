@@ -114,13 +114,15 @@ async function interactiveAuth(): Promise<void> {
 
   // Open browser (best-effort, non-blocking)
   const { spawn } = await import("node:child_process");
-  const openCmd =
-    process.platform === "darwin"
-      ? "open"
-      : process.platform === "win32"
-        ? "start"
-        : "xdg-open";
-  spawn(openCmd, [authUrl], { detached: true, stdio: "ignore" }).unref();
+  const child =
+    process.platform === "win32"
+      ? spawn("cmd", ["/c", "start", "", authUrl], { detached: true, stdio: "ignore" })
+      : spawn(process.platform === "darwin" ? "open" : "xdg-open", [authUrl], {
+          detached: true,
+          stdio: "ignore",
+        });
+  child.on("error", () => {});
+  child.unref();
 
   // Wait for the OAuth callback (5-minute timeout)
   const code = await new Promise<string>((resolveCode, reject) => {
