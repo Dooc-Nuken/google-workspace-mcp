@@ -530,6 +530,47 @@ function sanitizeHeader(value: string): string {
 }
 
 /**
+ * RFC 2047 — encode a header value as MIME encoded-word(s) if it contains non-ASCII chars.
+ * Splits at UTF-8 codepoint boundaries to keep each encoded-word ≤ 75 chars.
+ * ASCII-only values are returned as-is.
+ */
+function encodeHeaderValue(value: string): string {
+  if (/^[\x00-\x7F]*$/.test(value)) return value;
+  const buf = Buffer.from(value, "utf-8");
+  // 45 bytes → 60 base64 chars + 12 wrapper chars ("=?UTF-8?B??=") = 72 chars, under 75
+  const maxBytesPerWord = 45;
+  const words: string[] = [];
+  let i = 0;
+  while (i < buf.length) {
+    let end = Math.min(i + maxBytesPerWord, buf.length);
+    // Back up if we landed in the middle of a UTF-8 multibyte sequence
+    while (end > i && end < buf.length && (buf[end] & 0xc0) === 0x80) end--;
+    words.push(`=?UTF-8?B?${buf.subarray(i, end).toString("base64")}?=`);
+    i = end;
+  }
+  // Header folding per RFC 5322 §2.2.3
+  return words.join("\r\n ");
+}
+
+/**
+ * Encode display-names in an address header (To, From, Cc, Bcc) per RFC 2047.
+ * Email addresses themselves stay untouched.
+ */
+function encodeAddressHeader(value: string): string {
+  return value
+    .split(",")
+    .map((addr) => {
+      addr = addr.trim();
+      const m = addr.match(/^(.+?)\s*<([^>]+)>\s*$/);
+      if (!m) return addr; // bare email like foo@bar.com
+      const name = m[1].replace(/^"(.*)"$/, "$1"); // strip wrapping quotes
+      const email = m[2];
+      return `${encodeHeaderValue(name)} <${email}>`;
+    })
+    .join(", ");
+}
+
+/**
  * Transform body for RFC 3676 format=flowed.
  * Adds trailing space to flowable lines so clients can re-wrap them based on
  * display width. Lines starting with list/quote/header markers stay "fixed"
@@ -563,11 +604,11 @@ function buildRawMessage(opts: {
   const hasAttachments = opts.attachments && opts.attachments.length > 0;
 
   let msg = "";
-  if (opts.from) msg += `From: ${sanitizeHeader(opts.from)}\r\n`;
-  msg += `To: ${sanitizeHeader(opts.to)}\r\n`;
-  if (opts.cc) msg += `Cc: ${sanitizeHeader(opts.cc)}\r\n`;
-  if (opts.bcc) msg += `Bcc: ${sanitizeHeader(opts.bcc)}\r\n`;
-  msg += `Subject: ${sanitizeHeader(opts.subject)}\r\n`;
+  if (opts.from) msg += `From: ${encodeAddressHeader(sanitizeHeader(opts.from))}\r\n`;
+  msg += `To: ${encodeAddressHeader(sanitizeHeader(opts.to))}\r\n`;
+  if (opts.cc) msg += `Cc: ${encodeAddressHeader(sanitizeHeader(opts.cc))}\r\n`;
+  if (opts.bcc) msg += `Bcc: ${encodeAddressHeader(sanitizeHeader(opts.bcc))}\r\n`;
+  msg += `Subject: ${encodeHeaderValue(sanitizeHeader(opts.subject))}\r\n`;
   if (opts.inReplyTo) msg += `In-Reply-To: ${sanitizeHeader(opts.inReplyTo)}\r\n`;
   if (opts.references) msg += `References: ${sanitizeHeader(opts.references)}\r\n`;
   msg += `MIME-Version: 1.0\r\n`;
