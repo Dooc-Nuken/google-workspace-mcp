@@ -262,6 +262,7 @@ export async function createFolder(
       parents: parentId ? [parentId] : undefined,
     },
     fields: FILE_FIELDS,
+    supportsAllDrives: true,
   });
   return formatFileInfo(res.data);
 }
@@ -287,6 +288,7 @@ export async function createDoc(
         body: Readable.from(Buffer.from(content, "utf-8")),
       },
       fields: FILE_FIELDS,
+      supportsAllDrives: true,
     });
     return formatFileInfo(res.data);
   }
@@ -298,6 +300,7 @@ export async function createDoc(
       parents: parentId ? [parentId] : undefined,
     },
     fields: FILE_FIELDS,
+    supportsAllDrives: true,
   });
   return formatFileInfo(res.data);
 }
@@ -315,6 +318,7 @@ export async function createSheet(
       parents: parentId ? [parentId] : undefined,
     },
     fields: FILE_FIELDS,
+    supportsAllDrives: true,
   });
   return formatFileInfo(res.data);
 }
@@ -350,6 +354,7 @@ export async function uploadFile(
       body: Readable.from(content),
     },
     fields: FILE_FIELDS,
+    supportsAllDrives: true,
   });
 
   return formatFileInfo(res.data);
@@ -418,6 +423,7 @@ export async function moveFile(
     addParents: newParentId,
     removeParents: previousParents,
     fields: FILE_FIELDS,
+    supportsAllDrives: true,
   });
 
   return formatFileInfo(res.data);
@@ -437,6 +443,7 @@ export async function copyFile(
       parents: parentId ? [parentId] : undefined,
     },
     fields: FILE_FIELDS,
+    supportsAllDrives: true,
   });
   return formatFileInfo(res.data);
 }
@@ -451,6 +458,7 @@ export async function renameFile(
     fileId,
     requestBody: { name: newName },
     fields: FILE_FIELDS,
+    supportsAllDrives: true,
   });
   return formatFileInfo(res.data);
 }
@@ -462,11 +470,12 @@ export async function trashFile(
   const client = getClient(auth);
 
   // Get name first for confirmation
-  const meta = await client.files.get({ fileId, fields: "name" });
+  const meta = await client.files.get({ fileId, fields: "name", supportsAllDrives: true });
 
   await client.files.update({
     fileId,
     requestBody: { trashed: true },
+    supportsAllDrives: true,
   });
 
   return { trashed: fileId, name: meta.data.name ?? "" };
@@ -493,6 +502,7 @@ export async function shareFile(
   const res = await client.permissions.create({
     fileId,
     sendNotificationEmail: notify,
+    supportsAllDrives: true,
     requestBody: {
       type: "user",
       role,
@@ -516,6 +526,7 @@ export async function listPermissions(
   const client = getClient(auth);
   const res = await client.permissions.list({
     fileId,
+    supportsAllDrives: true,
     fields: "permissions(id, type, role, emailAddress, displayName)",
   });
   const permissions = (res.data.permissions ?? []).map((p) => ({
@@ -534,7 +545,7 @@ export async function removePermission(
   permissionId: string,
 ): Promise<{ removed: string }> {
   const client = getClient(auth);
-  await client.permissions.delete({ fileId, permissionId });
+  await client.permissions.delete({ fileId, permissionId, supportsAllDrives: true });
   return { removed: permissionId };
 }
 
